@@ -1,0 +1,12 @@
+---
+description: Follow Fullsend documentation when working with agents
+alwaysApply: true
+---
+
+# Fullsend Documentation
+
+When working with Fullsend agents, configuration, harnesses, skills, policies, or `.fullsend/` content in this project, follow the official Fullsend documentation:
+
+https://fullsend.sh/docs/guides/getting-started/
+
+Prefer the docs over improvising agent layout, dispatch, env vars, policies, or customization patterns. Start from Getting Started and use the linked guides (agents, configuring agent behavior, skills, AGENTS.md, default vs. custom, etc.) for the task at hand.
