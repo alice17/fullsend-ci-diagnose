@@ -42,7 +42,7 @@ host_files:
   - src: env/ci-diagnose.env
     dest: /sandbox/workspace/.env.d/ci-diagnose.env
     expand: true
-  - src: ${CHECK_CONTEXT_FILE}
+  - src: /tmp/workspace/check-context.json
     dest: /sandbox/workspace/check-context.json
     optional: true
 
