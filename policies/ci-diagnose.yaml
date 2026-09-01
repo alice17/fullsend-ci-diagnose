@@ -28,4 +28,5 @@ network_policies:
         access: read-write
     binaries:
       - path: "**/claude"
+      - path: "**/claude.exe"
       - path: "**/node"
