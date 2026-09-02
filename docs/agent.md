@@ -25,7 +25,9 @@ When vendored into a repo as `.fullsend/`, this file belongs at
 1. **Pre-script** (`scripts/pre-ci-diagnose.sh`) collects PR failing-check
    context into `check-context.json` (failing check runs, commit statuses,
    workflow log excerpts, and retry-budget counters read from prior sticky
-   comments)
+   comments). If no failing checks or statuses exist, the pre-script exits
+   with code 1 **without** creating `check-context.json`, aborting the
+   pipeline before the LLM agent starts
 2. **Agent** analyses the pre-fetched context — workflow log excerpts and
    check metadata — diagnoses failures, classifies each as `flaky` /
    `infra` / `code` / `unknown` with per-failure confidence, and writes
@@ -64,12 +66,14 @@ and [discussion #5182](https://github.com/fullsend-ai/fullsend/discussions/5182)
 ### `check-context.json` shape
 
 Written by the pre-script to `CHECK_CONTEXT_FILE`
-(set by `harness/ci-diagnose.yaml`). The pre-script writes to the repo
-checkout directory (`check-context.json`, relative to cwd) so the file is
-carried into the sandbox by the "project code copy" step
-(`target-repo/check-context.json`). Using `host_files` is not viable for
-URL-sourced harnesses because `env.runner` vars are not in the CLI's
-process environment at copy time, and absolute `src` paths are rejected:
+(set by `harness/ci-diagnose.yaml`). The runner-side path is
+`target-repo/check-context.json` (relative to the pre-script's cwd, which
+is `$GITHUB_WORKSPACE`, **not** the target-repo checkout). This places the
+file inside the target-repo checkout so it is carried into the sandbox by
+the "project code copy" tar step (`/sandbox/workspace/target-repo/check-context.json`).
+Using `host_files` is not viable for URL-sourced harnesses because
+`env.runner` vars are not in the CLI's process environment at copy time,
+and absolute `src` paths are rejected:
 
 - `repo_full_name`, `pr_number`, `head_sha`, `pr_url`, `pr_title`,
   `head_ref`, `base_ref`, `collected_at`. `head_sha` is always taken from

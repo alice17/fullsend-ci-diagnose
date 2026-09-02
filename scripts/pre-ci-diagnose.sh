@@ -276,13 +276,23 @@ main() {
   # 2) Gather failure signals + logs, then record retry history from PR comments
   collect_failing_check_runs "${raw_checks}" "${checks_json}"
   collect_failing_statuses "${statuses_json}"
+
+  failing_count="$(jq 'length' "${checks_json}")"
+  statuses_count="$(jq 'length' "${statuses_json}")"
+
+  if [[ "${failing_count}" -eq 0 && "${statuses_count}" -eq 0 ]]; then
+    echo "::notice::No failing checks or statuses for ${REPO_FULL_NAME}#${PR_NUMBER} @ ${HEAD_SHA} — nothing to diagnose"
+    rm -f "${raw_checks}" "${checks_json}" "${statuses_json}"
+    rm -rf "${logs_dir}"
+    exit 1
+  fi
+
   fetch_workflow_logs "${checks_json}" "${logs_dir}"
   retries_map="$(read_retries_map "${HEAD_SHA}")"
 
   # 3) Write the agent input context and clean up temps
   write_check_context "${checks_json}" "${statuses_json}" "${retries_map}" "${logs_dir}"
 
-  failing_count="$(jq 'length' "${checks_json}")"
   echo "::notice::Wrote ${CHECK_CONTEXT_FILE} (${failing_count} failing check runs; retries_map=${retries_map})"
   echo "::group::${CHECK_CONTEXT_FILE}"
   jq . "${CHECK_CONTEXT_FILE}"
