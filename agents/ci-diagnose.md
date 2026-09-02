@@ -33,7 +33,7 @@ Environment / host files set by the pre-script:
   `status`, `details_url`, `html_url`, `app_slug`; no `output_*` blobs),
   pre-fetched workflow logs, and a `retry_budget` object
   (`max_flake_retries`, `per_check: { <name>: { retries_used, retries_remaining } }`)
-  (default: `/sandbox/workspace/check-context.json`)
+  (default: `/sandbox/workspace/target-repo/check-context.json`)
 - `FULLSEND_OUTPUT_DIR` — directory for the result file (default:
   `/sandbox/workspace/output`; must write here or Fullsend cannot extract it)
 - `MIN_RETRY_CONFIDENCE` — minimum confidence to recommend `retry` (set by

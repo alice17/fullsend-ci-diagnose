@@ -259,6 +259,7 @@ main() {
   export GH_TOKEN
 
   CHECK_CONTEXT_FILE="${CHECK_CONTEXT_FILE}"
+  echo "Creating check context file at: ${CHECK_CONTEXT_FILE}"
   mkdir -p "$(dirname "${CHECK_CONTEXT_FILE}")"
 
   # 1) Pin to current PR head via `gh pr view` (URL)

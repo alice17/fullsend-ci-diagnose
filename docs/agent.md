@@ -64,9 +64,12 @@ and [discussion #5182](https://github.com/fullsend-ai/fullsend/discussions/5182)
 ### `check-context.json` shape
 
 Written by the pre-script to `CHECK_CONTEXT_FILE`
-(set by `harness/ci-diagnose.yaml`). The harness mounts that path into
-the sandbox via `host_files` with `optional: true`, because Fullsend validates
-`host_files` before the pre-script runs:
+(set by `harness/ci-diagnose.yaml`). The pre-script writes to the repo
+checkout directory (`check-context.json`, relative to cwd) so the file is
+carried into the sandbox by the "project code copy" step
+(`target-repo/check-context.json`). Using `host_files` is not viable for
+URL-sourced harnesses because `env.runner` vars are not in the CLI's
+process environment at copy time, and absolute `src` paths are rejected:
 
 - `repo_full_name`, `pr_number`, `head_sha`, `pr_url`, `pr_title`,
   `head_ref`, `base_ref`, `collected_at`. `head_sha` is always taken from
