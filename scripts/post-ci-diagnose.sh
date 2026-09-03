@@ -10,7 +10,7 @@
 #   GITHUB_ISSUE_URL — issue or PR URL (set by dispatch or caller).
 #                      `gh pr comment` and `gh pr view` accept the URL.
 #                      A numeric id is extracted for REST and
-#                      `fullsend post-comment --number`.
+#                      `fullsend issues post-comment --tracker github --number`.
 #
 #   MAX_FLAKE_RETRIES      — max automatic flake retries (set by harness yaml)
 #   MIN_RETRY_CONFIDENCE   — minimum confidence to retry (set by harness yaml)
@@ -19,11 +19,11 @@
 #   FULLSEND_OUTPUT_FILE   — result filename (set by harness yaml)
 set -euo pipefail
 
-# Marker used by fullsend post-comment to upsert a sticky diagnosis comment.
+# Marker used by fullsend issues post-comment to upsert a sticky diagnosis comment.
 COMMENT_MARKER='<!-- fullsend:ci-diagnose -->'
 RESULT_NAME="${FULLSEND_OUTPUT_FILE}"
 
-# Numeric id for REST paths and `fullsend post-comment --number`.
+# Numeric id for REST paths and `fullsend issues post-comment --tracker github --number`.
 pr_number_from_url() {
   local url="${GITHUB_ISSUE_URL}"
   if [[ "${url}" =~ /(issues|pull)/([0-9]+) ]]; then
@@ -87,12 +87,13 @@ should_retry() {
     ' "${result_file}" >/dev/null 2>&1
 }
 
-# Post a sticky diagnosis comment via fullsend post-comment.
+# Post a sticky diagnosis comment via fullsend issues post-comment.
 post_sticky_comment() {
   local body_file="$1"
   export GITHUB_TOKEN="${GH_TOKEN}"
-  fullsend post-comment \
-    --repo "${REPO_FULL_NAME}" \
+  fullsend issues post-comment \
+    --tracker github \
+    --project "${REPO_FULL_NAME}" \
     --number "$(pr_number_from_url)" \
     --marker "${COMMENT_MARKER}" \
     --token "${GH_TOKEN}" \

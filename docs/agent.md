@@ -36,7 +36,7 @@ When vendored into a repo as `.fullsend/`, this file belongs at
 3. **Validation loop** (`scripts/validate-output-schema.sh`) checks the
    result against the schema (`max_iterations: 2` in the harness)
 4. **Post-script** (`scripts/post-ci-diagnose.sh`) posts a sticky PR comment
-   via `fullsend post-comment` and may re-run **only the individually
+   via `fullsend issues post-comment --tracker github` and may re-run **only the individually
    flaky** Actions jobs (`POST /repos/.../actions/jobs/{id}/rerun`) within
    a per-check retry budget (`MAX_FLAKE_RETRIES`; confidence ≥
    `MIN_RETRY_CONFIDENCE`; per-check `retries_remaining > 0`). Budgets are
@@ -142,9 +142,9 @@ shim does not subscribe to `check_run` / `check_suite` events.
 Custom harness agents run through `reusable-dispatch.yml` `harness-run`,
 which injects `GITHUB_ISSUE_URL`, `REPO_FULL_NAME`, and a minted `GH_TOKEN`.
 The pre-script passes `GITHUB_ISSUE_URL` to `gh pr view`. The post-script
-posts with `fullsend post-comment` and re-runs jobs with `gh api`. A numeric
-id is parsed from the URL only for REST paths and
-`fullsend post-comment --number`. `HEAD_SHA` is set from
+posts with `fullsend issues post-comment --tracker github` and re-runs jobs
+with `gh api`. A numeric id is parsed from the URL only for REST paths and
+`fullsend issues post-comment --tracker github --number`. `HEAD_SHA` is set from
 `gh pr view --json headRefOid`. `MAX_FLAKE_RETRIES` and
 `MIN_RETRY_CONFIDENCE` defaults (`2` and `0.7`) are set in
 `harness/ci-diagnose.yaml` `env.runner` and passed through to the scripts.
