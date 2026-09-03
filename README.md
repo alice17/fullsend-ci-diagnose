@@ -87,5 +87,37 @@ harness.
 ## Requirements
 
 - A GitHub token with `pull-requests:read`/`write`, `checks:read`, and
-  `actions:read`/`write` scoped to the target repo (minted by dispatch)
+  `actions:read`/`write` scoped to the target repo
 - Google Cloud Vertex AI credentials for inference (`env/gcp-vertex.env`)
+
+### GitHub token for retries
+
+The minted `GH_TOKEN` from the `fullsend-ai-review` App has
+`pull-requests:write` and `checks:read` but **not** `actions:write`. Without
+it the post-script can post the diagnosis comment but cannot re-run flaky
+jobs.
+
+The harness falls back through `CI_DIAGNOSE_PAT` → minted `GH_TOKEN`. To
+enable retries, create a fine-grained PAT with these permissions scoped to
+the target repo:
+
+| Permission | Level |
+|------------|-------|
+| Pull requests | Read and write |
+| Checks | Read |
+| Actions | Read and write |
+| Contents | Read |
+
+Then:
+
+1. Store it as a repo secret named `CI_DIAGNOSE_PAT` in the target repo
+   (Settings > Secrets and variables > Actions)
+2. Forward it in the target repo's `.github/workflows/fullsend.yaml`:
+
+```yaml
+secrets:
+  CI_DIAGNOSE_PAT: ${{ secrets.CI_DIAGNOSE_PAT }}
+```
+
+If the secret is not set, the harness uses the minted token and retries
+will fail with HTTP 403.

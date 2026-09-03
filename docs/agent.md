@@ -149,6 +149,23 @@ with `gh api`. A numeric id is parsed from the URL only for REST paths and
 `MIN_RETRY_CONFIDENCE` defaults (`2` and `0.7`) are set in
 `harness/ci-diagnose.yaml` `env.runner` and passed through to the scripts.
 
+### `GH_TOKEN` and `actions:write`
+
+The minted `GH_TOKEN` from the `fullsend-ai-review` App lacks
+`actions:write`, which the post-script needs for
+`POST /repos/.../actions/jobs/{id}/rerun`. The harness env uses a
+fallback: `CI_DIAGNOSE_PAT` (a fine-grained PAT stored as a repo secret)
+is preferred when set, otherwise the minted token is used. The consuming
+repo's workflow must forward the secret:
+
+```yaml
+secrets:
+  CI_DIAGNOSE_PAT: ${{ secrets.CI_DIAGNOSE_PAT }}
+```
+
+The PAT needs `pull-requests:write`, `checks:read`, `actions:write`, and
+`contents:read`, scoped to the target repository.
+
 ## Status comments and mint role
 
 Hosted mint only allows canonical roles (`review`, `coder`, `triage`, …).
