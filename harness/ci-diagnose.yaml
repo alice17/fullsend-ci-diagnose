@@ -42,9 +42,6 @@ host_files:
   - src: env/ci-diagnose.env
     dest: /sandbox/workspace/.env.d/ci-diagnose.env
     expand: true
-  - src: ${CHECK_CONTEXT_FILE}
-    dest: /sandbox/workspace/check-context.json
-    optional: true
 
 skills:
   - skills/classify-ci-failure
@@ -64,11 +61,11 @@ env:
     GH_TOKEN: "${GH_TOKEN}"
     REPO_FULL_NAME: "${REPO_FULL_NAME}"
     GITHUB_ISSUE_URL: "${GITHUB_ISSUE_URL}"
-    CHECK_CONTEXT_FILE: /tmp/workspace/check-context.json
+    CHECK_CONTEXT_FILE: target-repo/check-context.json
     FULLSEND_OUTPUT_FILE: ci-diagnose-result.json
     MAX_FLAKE_RETRIES: "2"
     MIN_RETRY_CONFIDENCE: "0.7"
   sandbox:
     ANTHROPIC_VERTEX_PROJECT_ID: "${ANTHROPIC_VERTEX_PROJECT_ID}"
-    CHECK_CONTEXT_FILE: /sandbox/workspace/check-context.json
+    CHECK_CONTEXT_FILE: /sandbox/workspace/target-repo/check-context.json
     MIN_RETRY_CONFIDENCE: "0.7"
