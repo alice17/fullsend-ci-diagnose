@@ -20,8 +20,8 @@ policy: policies/ci-diagnose.yaml
 providers:
   - vertex-ai 
 
-role: cicheck
-slug: fullsend-ai-ci-check
+role: cidiagnose
+slug: fullsend-ai-ci-diagnose
 trigger: >
   event.transition.kind == "comment_added"
     && has(event.transition.comment.command)
