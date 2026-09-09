@@ -1,4 +1,4 @@
-# ci-diagnose agent
+# cidiagnose agent
 
 Fullsend custom agent that diagnoses failing **GitHub Actions** CI checks on
 GitHub pull requests.
@@ -11,11 +11,11 @@ When vendored into a repo as `.fullsend/`, this file belongs at
 | Field | Value |
 |-------|-------|
 | Role | `review` (hosted mint identity; harness `role:`) |
-| Registration name | `ci-diagnose` (`config.yaml` `agents[].name` / `fullsend run`) |
-| Slug | `fullsend-ai-review` |
+| Registration name | `cidiagnose` (`config.yaml` `agents[].name` / `fullsend run`) |
+| Slug | `fullsend-ai-ci-diagnose` |
 | Forge | GitHub |
 | Inference | Google Cloud Vertex AI ([`providers/vertex-ai.yaml`](providers/vertex-ai.yaml)) |
-| Harness | [`harness/ci-diagnose.yaml`](harness/ci-diagnose.yaml) |
+| Harness | [`harness/cidiagnose.yaml`](harness/cidiagnose.yaml) |
 | Prompt | [`agents/ci-diagnose.md`](agents/ci-diagnose.md) |
 | Policy | [`policies/ci-diagnose.yaml`](policies/ci-diagnose.yaml) |
 | Result schema | [`schemas/ci-diagnose-result.schema.json`](schemas/ci-diagnose-result.schema.json) |
@@ -41,7 +41,7 @@ When vendored into a repo as `.fullsend/`, this file belongs at
    a per-check retry budget (`MAX_FLAKE_RETRIES`; confidence ≥
    `MIN_RETRY_CONFIDENCE`; per-check `retries_remaining > 0`). Budgets are
    scoped to `head_sha` — new commits reset them. Defaults are set in
-   `harness/ci-diagnose.yaml` (`2` and `0.7`). The same
+   `harness/cidiagnose.yaml` (`2` and `0.7`). The same
    `MIN_RETRY_CONFIDENCE` is injected into the sandbox so the agent and
    post-script share one threshold.
 
@@ -52,7 +52,7 @@ the pre-script; all network writes happen in the post-script. The agent
 prompt is runtime-agnostic (references "available tools" rather than a
 specific inference provider).
 
-The `model` is set in the harness (`ci-diagnose.yaml`), not in the agent
+The `model` is set in the harness (`cidiagnose.yaml`), not in the agent
 frontmatter, to avoid divergence.
 
 Do **not** set `tools` or `disallowedTools` in the agent frontmatter. Claude
@@ -66,7 +66,7 @@ and [discussion #5182](https://github.com/fullsend-ai/fullsend/discussions/5182)
 ### `check-context.json` shape
 
 Written by the pre-script to `CHECK_CONTEXT_FILE`
-(set by `harness/ci-diagnose.yaml`). The runner-side path is
+(set by `harness/cidiagnose.yaml`). The runner-side path is
 `target-repo/check-context.json` (relative to the pre-script's cwd, which
 is `$GITHUB_WORKSPACE`, **not** the target-repo checkout). This places the
 file inside the target-repo checkout so it is carried into the sandbox by
@@ -129,7 +129,7 @@ Dispatch runs this agent when a human comments `/fs-ci-diagnose` on a
 non-fork pull request. The CEL expression is on the harness `trigger`
 field ([CEL Triggers Reference](https://fullsend.sh/docs/guides/user/cel-triggers-reference.html)).
 
-`fullsend run ci-diagnose` works for local/manual runs. Pass `GH_TOKEN`,
+`fullsend run cidiagnose` works for local/manual runs. Pass `GH_TOKEN`,
 `REPO_FULL_NAME`, and `GITHUB_ISSUE_URL`. The harness injects
 `MAX_FLAKE_RETRIES` and `MIN_RETRY_CONFIDENCE`; the scripts require those
 variables to be set. The slash command is still `/fs-ci-diagnose`.
@@ -147,14 +147,14 @@ with `gh api`. A numeric id is parsed from the URL only for REST paths and
 `fullsend issues post-comment --tracker github --number`. `HEAD_SHA` is set from
 `gh pr view --json headRefOid`. `MAX_FLAKE_RETRIES` and
 `MIN_RETRY_CONFIDENCE` defaults (`2` and `0.7`) are set in
-`harness/ci-diagnose.yaml` `env.runner` and passed through to the scripts.
+`harness/cidiagnose.yaml` `env.runner` and passed through to the scripts.
 
 ## Status comments and mint role
 
 Hosted mint only allows canonical roles (`review`, `coder`, `triage`, …).
 This harness therefore sets `role: review` and `slug: fullsend-ai-review`
 so token minting uses the shared review GitHub App. A custom role such as
-`ci-diagnose` needs a
+`cidiagnose` needs a
 [standalone mint](https://fullsend.sh/docs/guides/user/custom-agent-identity.html).
 
 Register the agent in the consuming repo's `.fullsend/config.yaml`
@@ -162,15 +162,15 @@ Register the agent in the consuming repo's `.fullsend/config.yaml`
 
 ```yaml
 agents:
-  - name: ci-diagnose
-    source: harness/ci-diagnose.yaml
+  - name: cidiagnose
+    source: harness/cidiagnose.yaml
 ```
 
 Custom agents do not belong in `roles:` — that list only enables built-in
 stages ([Bring Your Own Agent](https://fullsend.sh/docs/guides/user/bring-your-own-agent.html#config-file-fullsendconfigyaml)).
 
 After `fullsend run`, the composite action reconciles status comments with
-`fullsend reconcile-status --role <name>`. If that name is the config
-registration (`ci-diagnose`) rather than the harness `role:` (`review`),
-hosted mint returns HTTP 403 `role not allowed`.
+`fullsend reconcile-status --role <name>`. The reconcile step uses the
+agent name (harness filename) as the role, so the agent name must match
+the harness `role:` field to avoid HTTP 403 from the mint.
 
