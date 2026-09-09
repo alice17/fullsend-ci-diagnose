@@ -36,7 +36,7 @@ registration details.
 |------|---------|
 | `agents/ci-diagnose.md` | Agent prompt |
 | `docs/agent.md` | Full agent documentation |
-| `harness/ci-diagnose.yaml` | Harness config (model, providers, triggers, scripts, validation) |
+| `harness/cidiagnose.yaml` | Harness config (model, providers, triggers, scripts, validation) |
 | `policies/ci-diagnose.yaml` | Sandbox filesystem/network policy |
 | `providers/vertex-ai.yaml` | Google Cloud Vertex AI inference provider |
 | `env/*.env` | Environment files mounted into the sandbox |
@@ -56,7 +56,7 @@ this auto-pins the harness with a `#sha256=...` hash and adds it to
 
 ```bash
 fullsend agent add \
-  https://github.com/alice17/fullsend-ci-diagnose/blob/main/harness/ci-diagnose.yaml \
+  https://github.com/alice17/fullsend-ci-diagnose/blob/main/harness/cidiagnose.yaml \
   --fullsend-dir .fullsend
 ```
 
@@ -69,15 +69,15 @@ Alternatively, register it manually in `.fullsend/config.yaml`:
 
 ```yaml
 agents:
-  - name: ci-diagnose
-    source: harness/ci-diagnose.yaml
+  - name: cidiagnose
+    source: harness/cidiagnose.yaml
 ```
 
 Trigger it by commenting `/fs-ci-diagnose` on a non-fork pull request, or
 run it manually:
 
 ```bash
-fullsend run ci-diagnose
+fullsend run cidiagnose
 ```
 
 Manual runs require `GH_TOKEN`, `REPO_FULL_NAME`, and `GITHUB_ISSUE_URL` to
