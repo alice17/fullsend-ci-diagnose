@@ -131,16 +131,27 @@ the retry list even when the overall classification is `flaky`.
 
 ### Phase 6: Write result JSON
 
-`$FULLSEND_OUTPUT_DIR` is set by the harness. Write the result with the Bash tool:
-
-```bash
-RESULT_PATH="$FULLSEND_OUTPUT_DIR/ci-diagnose-result.json"
-jq -n --arg status diagnosed ... > "$RESULT_PATH"
-jq empty "$RESULT_PATH"
-```
-
 `$FULLSEND_OUTPUT_DIR` is required (set by the harness). Write valid JSON only
 (no markdown fences). It must match `schemas/ci-diagnose-result.schema.json`.
+
+**Use the Write tool** (not Bash `cat`/heredoc/`python3 -c`) to create the
+result file. The result JSON contains GitHub URLs (`details_url`,
+`workflow_run_url`, link targets in `pr_comment_markdown`) and the sandbox
+SSRF filter blocks shell commands that contain URL-like strings — even when
+they are just string literals being written to a file. The Write tool
+bypasses the filter because it does not go through the shell.
+
+```bash
+# 1. Resolve the output path
+mkdir -p "$FULLSEND_OUTPUT_DIR"
+echo "$FULLSEND_OUTPUT_DIR/ci-diagnose-result.json"
+```
+
+Then use the **Write** tool to create the file at that path, and validate:
+
+```bash
+jq empty "$FULLSEND_OUTPUT_DIR/ci-diagnose-result.json"
+```
 
 Required shape:
 

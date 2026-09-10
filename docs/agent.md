@@ -52,6 +52,12 @@ the pre-script; all network writes happen in the post-script. The agent
 prompt is runtime-agnostic (references "available tools" rather than a
 specific inference provider).
 
+The sandbox SSRF filter scans shell commands for URL-like strings and
+blocks them even when the URLs are just string literals (e.g. inside a
+heredoc or `python3 -c`). The agent prompt therefore tells the agent to
+use the **Write** tool for the result JSON, which contains GitHub URLs in
+`details_url`, `workflow_run_url`, and `pr_comment_markdown`.
+
 The `model` is set in the harness (`ci-diagnose.yaml`), not in the agent
 frontmatter, to avoid divergence.
 
