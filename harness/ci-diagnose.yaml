@@ -24,7 +24,7 @@ openshell:
 providers:
   - vertex-ai
 
-role: ci-diagnose
+role: ci_diagnose
 slug: fullsend-ai-ci-diagnose
 trigger: >
   event.transition.kind == "comment_added"
