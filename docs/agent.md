@@ -10,7 +10,7 @@ When vendored into a repo as `.fullsend/`, this file belongs at
 
 | Field | Value |
 |-------|-------|
-| Role | `ci_diagnose` (harness `role:`) |
+| Role | `ci-diagnose` (harness `role:`) |
 | Registration name | `ci-diagnose` (`config.yaml` `agents[].name` / `fullsend run`) |
 | Slug | `fullsend-ai-ci-diagnose` |
 | Forge | GitHub |
@@ -154,7 +154,7 @@ with `gh api`. A numeric id is parsed from the URL only for REST paths and
 Hosted mint only allows canonical roles (`review`, `coder`, `triage`, …).
 This harness therefore sets `role: review` and `slug: fullsend-ai-review`
 so token minting uses the shared review GitHub App. A custom role such as
-`ci_diagnose` needs a
+`ci-diagnose` needs a
 [standalone mint](https://fullsend.sh/docs/guides/user/custom-agent-identity.html).
 
 Register the agent in the consuming repo's `.fullsend/config.yaml`
