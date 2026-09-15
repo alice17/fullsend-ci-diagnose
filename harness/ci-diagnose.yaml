@@ -12,7 +12,6 @@
 # patterns strip Bash in Claude Code --agent sessions (fullsend#5182).
 # Inference: Google Cloud Vertex AI (credentials via host_files below).
 agent: agents/ci-diagnose.md
-doc: docs/agent.md
 model: claude-opus-4-6
 image: ghcr.io/fullsend-ai/fullsend-sandbox:latest
 policy: policies/ci-diagnose.yaml

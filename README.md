@@ -26,16 +26,11 @@ flaky — within a per-check retry budget.
 All network reads happen in the pre-script; all network writes happen in
 the post-script. The sandbox is a pure analysis environment.
 
-See [`docs/agent.md`](docs/agent.md) for the full behavior spec, the
-`check-context.json` shape, the result schema, dispatch environment, and
-registration details.
-
 ## Layout
 
 | Path | Purpose |
 |------|---------|
-| `agents/ci-diagnose.md` | Agent prompt |
-| `docs/agent.md` | Full agent documentation |
+| `agents/ci-diagnose.md` | Agent prompt (the full behavior spec) |
 | `harness/ci-diagnose.yaml` | Harness config (model, providers, triggers, scripts, validation) |
 | `policies/ci-diagnose.yaml` | Sandbox filesystem/network policy |
 | `providers/vertex-ai.yaml` | Google Cloud Vertex AI inference provider |
@@ -116,6 +111,14 @@ To override these values, change them in `harness/ci-diagnose.yaml` and
 commit. If you change `MIN_RETRY_CONFIDENCE`, keep the value in sync
 between `env.runner` and `env.sandbox` so the agent and the post-script
 agree on the threshold.
+
+## Notes
+
+Do **not** set `tools` or `disallowedTools` in the agent frontmatter.
+Claude Code v2.1.119+ enforces those keys in `--agent` sessions, and scoped
+`Bash(...)` patterns can strip the entire Bash tool. Steering belongs in
+prompt constraints and sandbox policy; see
+[ADR 0027](https://github.com/fullsend-ai/fullsend/blob/main/docs/ADRs/0027-allowed-and-disallowed-tools-for-agents.md).
 
 ## Requirements
 
