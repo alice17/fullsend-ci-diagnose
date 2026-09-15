@@ -84,6 +84,39 @@ Manual runs require `GH_TOKEN`, `REPO_FULL_NAME`, and `GITHUB_ISSUE_URL` to
 be set; `MAX_FLAKE_RETRIES` and `MIN_RETRY_CONFIDENCE` are injected by the
 harness.
 
+## Environment variables
+
+The harness declares two tuning knobs under `env.runner` (and
+`MIN_RETRY_CONFIDENCE` is also forwarded to `env.sandbox` so the agent can
+reference it during classification). Edit their values directly in
+`harness/ci-diagnose.yaml`:
+
+```yaml
+env:
+  runner:
+    MAX_FLAKE_RETRIES: "2"
+    MIN_RETRY_CONFIDENCE: "0.7"
+  sandbox:
+    MIN_RETRY_CONFIDENCE: "0.7"
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MAX_FLAKE_RETRIES` | `2` | Maximum number of times the post-script will re-run a check that the agent classified as `flaky`. Once a check has been retried this many times for the current head commit, it is skipped even if the agent still considers it flaky. Set to `0` to disable automatic re-runs entirely. |
+| `MIN_RETRY_CONFIDENCE` | `0.7` | Minimum confidence score (0–1) the agent must assign to a `flaky` classification before the post-script will trigger a re-run. A higher value (e.g. `0.9`) makes re-runs more conservative; a lower value (e.g. `0.5`) re-runs more aggressively. |
+
+`MAX_FLAKE_RETRIES` is only in `env.runner` because the sandbox agent never
+re-runs checks — it only diagnoses and classifies failures. The re-run
+logic lives entirely in the post-script, which runs on the runner.
+`MIN_RETRY_CONFIDENCE` appears in both `env.runner` and `env.sandbox`: the
+post-script uses it to gate re-runs, and the agent references it during
+classification so it can reason about the threshold it is targeting.
+
+To override these values, change them in `harness/ci-diagnose.yaml` and
+commit. If you change `MIN_RETRY_CONFIDENCE`, keep the value in sync
+between `env.runner` and `env.sandbox` so the agent and the post-script
+agree on the threshold.
+
 ## Requirements
 
 - A GitHub token with `pull-requests:read`/`write`, `checks:read`, and
