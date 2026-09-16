@@ -34,7 +34,7 @@ the post-script. The sandbox is a pure analysis environment.
 | `harness/ci-diagnose.yaml` | Harness config (model, providers, triggers, scripts, validation) |
 | `policies/ci-diagnose.yaml` | Sandbox filesystem/network policy |
 | `providers/vertex-ai.yaml` | Google Cloud Vertex AI inference provider |
-| `env/*.env` | Environment files mounted into the sandbox |
+| `env/gcp-vertex.env` | Vertex AI env mounted into the sandbox via `host_files` in the harness |
 | `scripts/pre-ci-diagnose.sh` | Collects failing checks + logs before the agent runs |
 | `scripts/post-ci-diagnose.sh` | Posts the PR comment and re-runs flaky checks |
 | `scripts/validate-output-schema.sh` | Validates agent output against the schema |
@@ -81,10 +81,11 @@ harness.
 
 ## Environment variables
 
-The harness declares two tuning knobs under `env.runner` (and
-`MIN_RETRY_CONFIDENCE` is also forwarded to `env.sandbox` so the agent can
-reference it during classification). Edit their values directly in
-`harness/ci-diagnose.yaml`:
+Runner and sandbox variables (including retry tuning) are declared inline in
+`harness/ci-diagnose.yaml` under `env.runner` and `env.sandbox` — there is no
+separate `env/ci-diagnose.env` file. `MIN_RETRY_CONFIDENCE` is forwarded to
+`env.sandbox` so the agent can reference it during classification. Edit values
+in the harness:
 
 ```yaml
 env:
