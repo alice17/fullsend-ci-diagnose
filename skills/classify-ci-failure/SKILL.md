@@ -66,8 +66,3 @@ Decide the primary failure class and whether the post-script should retry.
 Never recommend `retry` unless classification is `flaky` and confidence
 ≥ `MIN_RETRY_CONFIDENCE` (sandbox environment; set by the harness). Do
 not assume a numeric default.
-
-## TODO
-
-Expand with Actions-specific flake catalogs (Jest/Playwright timeouts, npm
-registry blips, cache corruption) and job-log triage patterns.
