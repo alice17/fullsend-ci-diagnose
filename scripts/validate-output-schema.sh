@@ -34,16 +34,6 @@ if ! jq empty "${RESULT_FILE}" >/dev/null 2>&1; then
   exit 1
 fi
 
-if command -v check-jsonschema >/dev/null 2>&1; then
-  check-jsonschema --schemafile "${FULLSEND_OUTPUT_SCHEMA}" "${RESULT_FILE}"
-  exit $?
-fi
-
-if command -v ajv >/dev/null 2>&1; then
-  ajv validate -s "${FULLSEND_OUTPUT_SCHEMA}" -d "${RESULT_FILE}"
-  exit $?
-fi
-
 if python3 -c "import jsonschema" 2>/dev/null; then
   python3 -c "
 import json, sys
