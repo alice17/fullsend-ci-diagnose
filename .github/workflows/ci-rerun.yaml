@@ -61,8 +61,8 @@ jobs:
           fi
 
           name=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" \
-            --paginate --jq --arg n "fullsend-ci-diagnose" \
-            '.artifacts[] | select(.name==$n) | .name' | head -1)
+            --paginate --jq '.artifacts[] | select(.name=="fullsend-ci-diagnose") | .name' \
+            | head -1)
           echo "artifact=$name" >>"$GITHUB_OUTPUT"
           echo "${name:-no ci-diagnose result on run $RUN_ID; nothing to do}"
 
