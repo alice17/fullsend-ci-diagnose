@@ -1,22 +1,20 @@
 #!/usr/bin/env bash
-# post-ci-diagnose.sh — Post diagnosis comment and optionally re-run flaky checks.
+# post-ci-diagnose.sh — Post diagnosis comment on a PR.
 #
-# Runs on the trusted runner after sandbox exit. Side effects (comments, retries)
-# happen here — never inside the sandbox.
+# Runs on the trusted runner after sandbox exit. The only effect is
+# posting a sticky PR comment — re-runs of flaky checks are delegated to a
+# user-owned ci-rerun workflow that reads the fullsend-ci-diagnose artifact
+# (see ADR 0124, chaining-follow-up-workflows guide).
 #
 # Required env:
-#   REPO_FULL_NAME   — owner/repo (set by dispatch)
-#   GH_TOKEN         — GitHub token with pull-requests:write and actions:write
-#   GITHUB_ISSUE_URL — issue or PR URL (set by dispatch or caller).
-#                      `gh pr comment` and `gh pr view` accept the URL.
-#                      A numeric id is extracted for REST and
-#                      `fullsend issues post-comment --tracker github --number`.
-#
-#   MAX_FLAKE_RETRIES      — max automatic flake retries (set by harness yaml)
-#   MIN_RETRY_CONFIDENCE   — minimum confidence to retry (set by harness yaml)
-#   CHECK_CONTEXT_FILE     — pre-script context (set by harness yaml)
-#
-#   FULLSEND_OUTPUT_FILE   — result filename (set by harness yaml)
+#   REPO_FULL_NAME       — owner/repo (set by dispatch)
+#   GH_TOKEN             — GitHub token with pull-requests:write
+#   GITHUB_ISSUE_URL     — issue or PR URL (set by dispatch or caller).
+#                          `gh pr comment` and `gh pr view` accept the URL.
+#                          A numeric id is extracted for REST and
+#                          `fullsend issues post-comment --tracker github --number`.
+#   MIN_RETRY_CONFIDENCE — minimum confidence to retry (set by harness yaml)
+#   FULLSEND_OUTPUT_FILE — result filename (set by harness yaml)
 set -euo pipefail
 
 # Marker used by fullsend issues post-comment to upsert a sticky diagnosis comment.
@@ -47,33 +45,7 @@ find_result_file() {
   exit 1
 }
 
-# Per-check retries map from pre-script context: {"check_name": count, …}.
-read_retries_map_from_context() {
-  local context_file="${CHECK_CONTEXT_FILE}"
-  if [[ -f "${context_file}" ]]; then
-    jq '
-      .retry_budget.per_check // {}
-      | to_entries
-      | map({key: .key, value: (.value.retries_used // 0)})
-      | from_entries
-    ' "${context_file}" 2>/dev/null || printf '{}'
-  else
-    printf '{}'
-  fi
-}
-
-# HEAD SHA from pre-script context (needed for per-check retry markers).
-read_head_sha_from_context() {
-  local context_file="${CHECK_CONTEXT_FILE}"
-  if [[ -f "${context_file}" ]]; then
-    jq -r '.head_sha // ""' "${context_file}" 2>/dev/null || printf ''
-  else
-    printf ''
-  fi
-}
-
 # True when the agent recommends a flake retry and confidence qualifies.
-# Per-check budget enforcement happens in rerequest_targets.
 should_retry() {
   local result_file="$1"
   local min_confidence="${MIN_RETRY_CONFIDENCE}"
@@ -100,58 +72,18 @@ post_sticky_comment() {
     --result "${body_file}"
 }
 
-# Re-run each job listed in retry_targets that still has per-check budget.
-# Prints successfully retried check names to stdout (one per line).
-# Returns 0 if at least one re-run succeeded, 1 otherwise.
-rerequest_targets() {
-  local result_file="$1"
-  local retries_map="$2"
-  local max_retries="${MAX_FLAKE_RETRIES}"
-  local id name used err_output
-  local ok_count=0
-  local fail_count=0
-  local skip_count=0
-
-  while IFS=$'\t' read -r id name; do
-    if [[ -z "${id}" || "${id}" == "null" ]]; then
-      echo "::warning::Skipping retry target without check_run_id: ${name}" >&2
-      fail_count=$((fail_count + 1))
-      continue
-    fi
-    used="$(printf '%s' "${retries_map}" | jq -r --arg n "${name}" '.[$n] // 0')"
-    if [[ "${used}" -ge "${max_retries}" ]]; then
-      echo "::notice::Skipping ${name}: budget exhausted (${used}/${max_retries})" >&2
-      skip_count=$((skip_count + 1))
-      continue
-    fi
-    echo "::notice::Re-running job ${id} (${name})" >&2
-    if err_output="$(gh api -X POST "repos/${REPO_FULL_NAME}/actions/jobs/${id}/rerun" 2>&1)"; then
-      ok_count=$((ok_count + 1))
-      printf '%s\n' "${name}"
-    else
-      echo "::warning::Failed to re-run job ${id} (${name}): ${err_output}" >&2
-      fail_count=$((fail_count + 1))
-    fi
-  done < <(jq -r '.retry_targets[] | [((.check_run_id // "null")|tostring), .check_name] | @tsv' "${result_file}")
-
-  echo "::notice::Retry summary: ok=${ok_count} failed=${fail_count} skipped=${skip_count}" >&2
-  [[ "${ok_count}" -gt 0 ]]
-}
-
 main() {
   command -v gh >/dev/null || { echo "::error::gh not found"; exit 1; }
   command -v jq >/dev/null || { echo "::error::jq not found"; exit 1; }
   : "${REPO_FULL_NAME:?Required env REPO_FULL_NAME is not set}"
   : "${GH_TOKEN:?Required env GH_TOKEN is not set}"
   : "${GITHUB_ISSUE_URL:?Required env GITHUB_ISSUE_URL is not set}"
-  : "${CHECK_CONTEXT_FILE:?Required env CHECK_CONTEXT_FILE is not set}"
-  : "${MAX_FLAKE_RETRIES:?Required env MAX_FLAKE_RETRIES is not set}"
   : "${MIN_RETRY_CONFIDENCE:?Required env MIN_RETRY_CONFIDENCE is not set}"
   : "${FULLSEND_OUTPUT_FILE:?Required env FULLSEND_OUTPUT_FILE is not set}"
   export GH_TOKEN
 
   # 1) Load and validate agent output
-  local result_file did_retry retry_note body_file
+  local result_file retry_note body_file
   result_file="$(find_result_file)"
   echo "::notice::Reading diagnosis result from ${result_file}"
 
@@ -160,25 +92,13 @@ main() {
     exit 1
   fi
 
-  # 2) Decide whether to re-request flaky checks (trusted side effects only).
-  #    Budget is per-check and scoped to HEAD SHA.
-  local retries_map head_sha retried_checks
-  retries_map="$(read_retries_map_from_context)"
-  head_sha="$(read_head_sha_from_context)"
-
-  did_retry="false"
+  # 2) Determine retry recommendation for comment text.
   retry_note=""
-  retried_checks=""
 
   if should_retry "${result_file}"; then
-    if retried_checks="$(rerequest_targets "${result_file}" "${retries_map}")"; then
-      did_retry="true"
-      local retried_count
-      retried_count="$(printf '%s\n' "${retried_checks}" | grep -c .)"
-      retry_note="**Retry:** re-requested ${retried_count} flaky check run(s)."
-    else
-      retry_note="**Retry:** recommended, but no check runs could be re-requested."
-    fi
+    local target_count
+    target_count="$(jq '.retry_targets | length' "${result_file}")"
+    retry_note="**Retry:** recommended for ${target_count} flaky check(s). The \`ci-rerun\` workflow will handle re-runs from the run artifact."
   else
     local action classification
     action="$(jq -r '.recommended_action' "${result_file}")"
@@ -188,7 +108,7 @@ main() {
     fi
   fi
 
-  # 3) Build and post sticky diagnosis comment with per-check retry markers
+  # 3) Build and post sticky diagnosis comment
   local body
   body="$(jq -r '.pr_comment_markdown' "${result_file}")"
   if [[ -z "${body}" || "${body}" == "null" ]]; then
@@ -200,15 +120,6 @@ main() {
   {
     printf '%s\n' "${body}"
     [[ -n "${retry_note}" ]] && printf '\n---\n%s\n' "${retry_note}"
-    if [[ -n "${retried_checks}" ]]; then
-      local check_name old_count
-      while IFS= read -r check_name; do
-        [[ -z "${check_name}" ]] && continue
-        old_count="$(printf '%s' "${retries_map}" | jq -r --arg n "${check_name}" '.[$n] // 0')"
-        printf '<!-- fullsend:ci-diagnose-retries:%s:%s:%s -->\n' \
-          "${check_name}" "${head_sha}" "$((old_count + 1))"
-      done <<< "${retried_checks}"
-    fi
   } >"${body_file}"
   echo "::notice::Posting diagnosis comment on ${GITHUB_ISSUE_URL}"
   post_sticky_comment "${body_file}"

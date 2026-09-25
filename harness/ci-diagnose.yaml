@@ -4,7 +4,7 @@
 # Flow: pre_script → sandbox (agent) → post_script
 #   pre_script  : collect failing GitHub Actions checks for a PR into check-context.json
 #   agent       : diagnose failures, classify flaky/infra/code, write JSON result
-#   post_script : post PR comment; optionally re-run flaky checks within budget
+#   post_script : post PR comment (re-runs are handled by the repo's ci-rerun workflow)
 #
 # The agent has NO GitHub token and NO external API access.
 # All reads happen in the pre-script; all writes happen in the post-script.
@@ -62,7 +62,6 @@ env:
     GITHUB_ISSUE_URL: "${GITHUB_ISSUE_URL}"
     CHECK_CONTEXT_FILE: target-repo/check-context.json
     FULLSEND_OUTPUT_FILE: ci-diagnose-result.json
-    MAX_FLAKE_RETRIES: "2"
     MIN_RETRY_CONFIDENCE: "0.7"
   sandbox:
     ANTHROPIC_VERTEX_PROJECT_ID: "${ANTHROPIC_VERTEX_PROJECT_ID}"

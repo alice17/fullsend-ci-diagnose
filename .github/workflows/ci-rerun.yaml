@@ -1,0 +1,156 @@
+# ci-rerun.yaml — Re-run flaky CI jobs from a ci-diagnose agent's artifact.
+#
+# Called by adopting repos via workflow_call. The caller owns the
+# workflow_run trigger and passes the run-id and head-sha, since
+# github.event.workflow_run is not available inside a workflow_call callee.
+#
+# Safety rails — each re-run candidate must pass all of:
+#   1. check_run_id is a number (non-numeric IDs are dropped by jq)
+#   2. The job exists and has conclusion=failure
+#   3. The job's head_sha matches the caller's head-sha
+#   4. The run's current attempt is at most max-attempts
+#
+# See ADR 0124, chaining-follow-up-workflows guide.
+---
+name: CI rerun
+
+on:
+  workflow_call:
+    inputs:
+      run-id:
+        description: "The workflow_run.id from the fullsend shim run"
+        required: true
+        type: string
+      head-sha:
+        description: "The workflow_run.head_sha — ties re-runs to the correct commit"
+        required: true
+        type: string
+      max-attempts:
+        description: "Re-run only when current attempt <= this value (default 2 = up to 2 re-runs)"
+        required: false
+        type: string
+        default: "2"
+
+permissions: {}
+
+jobs:
+  rerun:
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - name: Find agent artifact
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run-id }}
+        run: |
+          set -euo pipefail
+          # "fullsend" dispatches several stages per run; only act once the
+          # ci-diagnose stage itself has finished. Job name comes from
+          # reusable-dispatch.yml's internal "Harness run (<role>)" naming
+          # (fullsend-ai/fullsend) — not a documented contract, so this may
+          # need updating if that naming changes upstream.
+          stage_conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs" \
+            --paginate --jq '.jobs[] | select(.name=="dispatch / Harness run (ci-diagnose)") | .conclusion' \
+            | head -1)
+          if [[ "$stage_conclusion" != "success" ]]; then
+            echo "artifact=" >>"$GITHUB_OUTPUT"
+            echo "ci-diagnose stage did not complete successfully on run $RUN_ID (conclusion: ${stage_conclusion:-did not run}); nothing to do"
+            exit 0
+          fi
+
+          name=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" \
+            --paginate --jq --arg n "fullsend-ci-diagnose" \
+            '.artifacts[] | select(.name==$n) | .name' | head -1)
+          echo "artifact=$name" >>"$GITHUB_OUTPUT"
+          echo "${name:-no ci-diagnose result on run $RUN_ID; nothing to do}"
+
+      - name: Download artifact
+        if: steps.find.outputs.artifact != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.find.outputs.artifact }}
+          run-id: ${{ inputs.run-id }}
+          github-token: ${{ github.token }}
+          path: result
+
+      - name: Re-run flaky jobs
+        if: steps.find.outputs.artifact != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ inputs.head-sha }}
+          MAX_ATTEMPTS: ${{ inputs.max-attempts }}
+        run: |
+          set -euo pipefail
+
+          # Walk iterations newest-first; use the first result that matches
+          # the ci-diagnose schema shape.
+          f=""
+          for d in $(printf '%s\n' result/*/iteration-*/output | sort -Vr); do
+            candidate="$d/ci-diagnose-result.json"
+            [[ -f "$candidate" ]] || continue
+            if jq -e '
+              .recommended_action != null
+              and (.retry_targets | type == "array")
+              and (.retry_targets | all(.[]; .check_name != null))
+            ' "$candidate" >/dev/null 2>&1; then
+              f="$candidate"
+              break
+            fi
+          done
+          if [[ -z "$f" ]]; then
+            echo "no valid result found; nothing to do"
+            exit 0
+          fi
+          echo "::notice::Using $f"
+
+          action=$(jq -r .recommended_action "$f")
+          if [[ "$action" != "retry" ]]; then
+            echo "::notice::recommended_action is $action, not retry; nothing to do"
+            exit 0
+          fi
+
+          rerun_count=0
+          skip_count=0
+          for id in $(jq -r '.retry_targets[].check_run_id | numbers' "$f"); do
+            job=$(gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$id" 2>/dev/null) || {
+              echo "::warning::Job $id not found; skipping"
+              skip_count=$((skip_count + 1))
+              continue
+            }
+
+            conclusion=$(jq -r .conclusion <<<"$job")
+            if [[ "$conclusion" != "failure" ]]; then
+              echo "::notice::Job $id conclusion is $conclusion, not failure; skipping"
+              skip_count=$((skip_count + 1))
+              continue
+            fi
+
+            job_name=$(jq -r .name <<<"$job")
+            job_sha=$(jq -r .head_sha <<<"$job")
+            if [[ "$job_sha" != "$HEAD_SHA" ]]; then
+              echo "::notice::Job $id head_sha $job_sha != event $HEAD_SHA; skipping"
+              skip_count=$((skip_count + 1))
+              continue
+            fi
+
+            run_id=$(jq -r .run_id <<<"$job")
+            attempt=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" \
+              --jq .run_attempt 2>/dev/null) || {
+              echo "::warning::Could not fetch run $run_id; skipping"
+              skip_count=$((skip_count + 1))
+              continue
+            }
+            if [[ "$attempt" -gt "$MAX_ATTEMPTS" ]]; then
+              echo "::notice::Run $run_id attempt $attempt > $MAX_ATTEMPTS; budget exhausted"
+              skip_count=$((skip_count + 1))
+              continue
+            fi
+
+            echo "::notice::Re-running job $id ($job_name) on run $run_id (attempt $attempt)"
+            gh run rerun "$run_id" --job "$id" --repo "$GITHUB_REPOSITORY"
+            rerun_count=$((rerun_count + 1))
+          done
+
+          echo "::notice::Done: re-ran=$rerun_count skipped=$skip_count"
