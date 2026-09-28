@@ -1,13 +1,13 @@
 # ci-rerun.yaml — Re-run flaky CI jobs from a ci-diagnose agent's artifact.
 #
 # Called by adopting repos via workflow_call. The caller owns the
-# workflow_run trigger and passes the run-id and head-sha, since
-# github.event.workflow_run is not available inside a workflow_call callee.
+# workflow_run trigger and passes the run-id, since github.event.workflow_run
+# is not available inside a workflow_call callee.
 #
 # Safety rails — each re-run candidate must pass all of:
 #   1. check_run_id is a number (non-numeric IDs are dropped by jq)
 #   2. The job exists and has conclusion=failure
-#   3. The job's head_sha matches the caller's head-sha
+#   3. The job's head_sha matches the artifact's own head_sha
 #   4. The run's current attempt is at most max-attempts
 #
 # See ADR 0124, chaining-follow-up-workflows guide.
@@ -19,10 +19,6 @@ on:
     inputs:
       run-id:
         description: "The workflow_run.id from the fullsend shim run"
-        required: true
-        type: string
-      head-sha:
-        description: "The workflow_run.head_sha — ties re-runs to the correct commit"
         required: true
         type: string
       max-attempts:
@@ -79,7 +75,6 @@ jobs:
         if: steps.find.outputs.artifact != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ inputs.head-sha }}
           MAX_ATTEMPTS: ${{ inputs.max-attempts }}
         run: |
           set -euo pipefail
@@ -105,6 +100,12 @@ jobs:
           fi
           echo "::notice::Using $f"
 
+          head_sha=$(jq -r '.head_sha // empty' "$f")
+          if [[ -z "$head_sha" ]]; then
+            echo "::warning::$f has no head_sha; cannot safely match retry targets to a commit, skipping"
+            exit 0
+          fi
+
           action=$(jq -r .recommended_action "$f")
           if [[ "$action" != "retry" ]]; then
             echo "::notice::recommended_action is $action, not retry; nothing to do"
@@ -129,8 +130,8 @@ jobs:
 
             job_name=$(jq -r .name <<<"$job")
             job_sha=$(jq -r .head_sha <<<"$job")
-            if [[ "$job_sha" != "$HEAD_SHA" ]]; then
-              echo "::notice::Job $id head_sha $job_sha != event $HEAD_SHA; skipping"
+            if [[ "$job_sha" != "$head_sha" ]]; then
+              echo "::notice::Job $id head_sha $job_sha != diagnosed commit $head_sha; skipping"
               skip_count=$((skip_count + 1))
               continue
             fi

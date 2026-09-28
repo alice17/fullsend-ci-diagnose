@@ -14,9 +14,15 @@
     "failures",
     "retry_targets",
     "pr_comment_markdown",
-    "reasoning"
+    "reasoning",
+    "head_sha"
   ],
   "properties": {
+    "head_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "The PR head commit SHA from check-context.json that this diagnosis covers. ci-rerun uses this (not the caller's workflow_run.head_sha, which reflects the default branch for issue_comment-triggered runs) to confirm a retry target belongs to the diagnosed commit."
+    },
     "status": {
       "type": "string",
       "enum": ["diagnosed", "needs_human", "error"],

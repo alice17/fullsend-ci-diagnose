@@ -145,6 +145,11 @@ mkdir -p "$FULLSEND_OUTPUT_DIR"
 echo "$FULLSEND_OUTPUT_DIR/ci-diagnose-result.json"
 ```
 
+Copy `head_sha` verbatim from `check-context.json` into the result's top-level
+`head_sha` — `ci-rerun` uses it to confirm retry targets belong to the
+diagnosed commit, since it cannot rely on the caller's event context for
+comment-triggered runs.
+
 Then use the **Write** tool to create the file at that path, and validate:
 
 ```bash
@@ -156,6 +161,7 @@ Required shape:
 ```json
 {
   "status": "diagnosed",
+  "head_sha": "abc123...",
   "classification": "flaky",
   "confidence": 0.82,
   "recommended_action": "retry",
