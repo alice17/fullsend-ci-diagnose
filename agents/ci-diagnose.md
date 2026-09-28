@@ -31,8 +31,7 @@ Environment / host files set by the pre-script:
   `pr_number`, `head_sha`, `pr_url`, `pr_title`, `head_ref`, `base_ref`),
   failing checks (metadata only: `check_name`, `check_run_id`, `conclusion`,
   `status`, `details_url`, `html_url`, `app_slug`; no `output_*` blobs),
-  pre-fetched workflow logs, and a `retry_budget` object
-  (`max_flake_retries`, `per_check: { <name>: { retries_used, retries_remaining } }`)
+  pre-fetched workflow logs, and `workflow_run_attempts`
   (default: `/sandbox/workspace/target-repo/check-context.json`)
 - `FULLSEND_OUTPUT_DIR` — directory for the result file (default:
   `/sandbox/workspace/output`; must write here or Fullsend cannot extract it)
@@ -114,12 +113,11 @@ Apply the classification rules and confidence guidance from the
 ### Phase 5: Choose recommended action
 
 - `retry` — only if overall `classification` is `flaky`,
-  `confidence >= MIN_RETRY_CONFIDENCE`, at least one `retry_targets` entry
-  exists, **and** the target check has
-  `retry_budget.per_check[check_name].retries_remaining > 0` in the check
-  context. If the budget is exhausted for a check, exclude it from
-  `retry_targets`. If all flaky checks are exhausted, use `comment_only`.
-  If `MIN_RETRY_CONFIDENCE` is unset, do not recommend `retry`.
+  `confidence >= MIN_RETRY_CONFIDENCE`, and at least one `retry_targets`
+  entry exists. If `MIN_RETRY_CONFIDENCE` is unset, do not recommend
+  `retry`. Retry-attempt budget enforcement happens downstream in the
+  `ci-rerun` workflow (via `max-attempts`/`run_attempt`) — do not gate on
+  a budget here.
 - `comment_only` — diagnosis is useful but retry is inappropriate
 - `escalate` — needs human investigation (`needs_human` status or low confidence)
 
