@@ -6,10 +6,8 @@
 # Required env:
 #   REPO_FULL_NAME     — owner/repo (set by dispatch)
 #   GH_TOKEN           — GitHub token with pull-requests:read, checks:read, and
-#                        actions:read. Fine-grained PATs do not need Issues
-#                        permission; retry markers are read via `gh pr view`.
+#                        actions:read.
 #   GITHUB_ISSUE_URL   — PR URL (e.g. https://github.com/owner/repo/pull/123)
-#   MAX_FLAKE_RETRIES  — retry budget recorded in context (set by harness yaml)
 #   CHECK_CONTEXT_FILE — output path (set by harness yaml)
 #
 # Optional env:
@@ -32,41 +30,6 @@ load_pr_from_url() {
     exit 1
   fi
   export PR_NUMBER PR_URL PR_TITLE PR_HEAD_REF PR_BASE_REF HEAD_SHA
-}
-
-# Read <!-- fullsend:ci-diagnose-retries:CHECK_NAME:SHA:N --> markers from PR
-# comments and return a JSON object mapping check names to their highest retry
-# count for the given HEAD SHA.  Markers for other SHAs are ignored, so new
-# commits implicitly reset the budget.
-# Uses `gh pr view` (Pull Requests API). The Issues comments REST endpoint
-# 404s for fine-grained PATs that have pull-requests:read but not Issues.
-read_retries_map() {
-  local head_sha="$1"
-  local api_output
-  if api_output="$(
-    gh pr view "${GITHUB_ISSUE_URL}" --json comments \
-      | jq --arg sha "${head_sha}" '
-        [.comments[].body // empty
-          | strings
-          | capture("<!-- fullsend:ci-diagnose-retries:(?<name>[^:]+):(?<sha>[0-9a-f]+):(?<n>[0-9]+) -->")?
-          | select(.sha == $sha)
-          | {name: .name, n: (.n | tonumber)}
-        ]
-        | group_by(.name)
-        | map({key: .[0].name, value: (map(.n) | max)})
-        | from_entries
-      '
-  )"; then
-    if printf '%s' "${api_output}" | jq -e 'type == "object"' >/dev/null 2>&1; then
-      printf '%s' "${api_output}"
-      return 0
-    fi
-    echo "::warning::Unexpected retries map format; defaulting to {}" >&2
-    printf '{}'
-    return 0
-  fi
-  echo "::warning::Failed to read PR comments for retry tracking; defaulting to {}" >&2
-  printf '{}'
 }
 
 # List check runs for HEAD_SHA, keep only real failures, and write a trimmed
@@ -187,21 +150,57 @@ fetch_workflow_logs() {
   echo "::notice::Fetched logs for ${count} workflow run(s)"
 }
 
+# Fetch run_attempt for each unique workflow run ID found in failing checks.
+# Writes a JSON object { "<run_id>": <run_attempt> } to the output path.
+# Soft-fails per run so one API miss does not block the rest.
+collect_run_attempts() {
+  local checks_path="$1"
+  local out_path="$2"
+
+  local run_ids
+  run_ids="$(jq -r '
+    [.[]
+      | select(.details_url != null or .html_url != null)
+      | (.details_url // .html_url)
+      | capture("actions/runs/(?<run_id>[0-9]+)")?
+      | .run_id
+    ] | unique[]
+  ' "${checks_path}")" || true
+
+  local result='{}'
+  if [[ -n "${run_ids}" ]]; then
+    while IFS= read -r run_id; do
+      [[ -z "${run_id}" ]] && continue
+      local attempt
+      if attempt="$(gh api "repos/${REPO_FULL_NAME}/actions/runs/${run_id}" \
+        --jq '.run_attempt' 2>/dev/null)"; then
+        result="$(jq --arg k "${run_id}" --argjson v "${attempt}" \
+          '. + {($k): $v}' <<< "${result}")"
+      else
+        echo "::warning::Failed to fetch run_attempt for run ${run_id}" >&2
+      fi
+    done <<< "${run_ids}"
+  fi
+
+  printf '%s' "${result}" >"${out_path}"
+}
+
 # Assemble the final check-context.json: PR metadata, failing checks/statuses,
-# workflow log excerpts, and the per-check flake retry budget.
+# workflow log excerpts, and workflow run attempts.
 write_check_context() {
   local checks_path="$1"
   local statuses_path="$2"
-  local retries_map="$3"
-  local logs_dir="$4"
-  local max_retries="${MAX_FLAKE_RETRIES}"
-  local logs_json
+  local logs_dir="$3"
+  local run_attempts_path="$4"
+  local logs_json run_attempts
 
   logs_json='{}'
   for f in "${logs_dir}"/*.txt; do
     [[ -f "$f" ]] || continue
     logs_json="$(jq --arg k "$(basename "$f" .txt)" --rawfile v "$f" '. + {($k): $v}' <<< "${logs_json}")"
   done
+
+  run_attempts="$(cat "${run_attempts_path}")"
 
   jq -n \
     --arg repo "${REPO_FULL_NAME}" \
@@ -212,11 +211,10 @@ write_check_context() {
     --arg head_ref "${PR_HEAD_REF}" \
     --arg base_ref "${PR_BASE_REF}" \
     --arg collected_at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-    --argjson retries_map "${retries_map}" \
-    --argjson max_retries "${max_retries}" \
     --slurpfile checks "${checks_path}" \
     --slurpfile statuses "${statuses_path}" \
-    --argjson logs "${logs_json}" '
+    --argjson logs "${logs_json}" \
+    --argjson run_attempts "${run_attempts}" '
     {
       repo_full_name: $repo,
       pr_number: $pr_number,
@@ -229,21 +227,7 @@ write_check_context() {
       failing_checks: $checks[0],
       failing_statuses: $statuses[0],
       workflow_logs: $logs,
-      retry_budget: {
-        max_flake_retries: $max_retries,
-        per_check: (
-          $checks[0]
-          | map(.check_name)
-          | map({
-              key: .,
-              value: {
-                retries_used: ($retries_map[.] // 0),
-                retries_remaining: ([($max_retries - ($retries_map[.] // 0)), 0] | max)
-              }
-            })
-          | from_entries
-        )
-      }
+      workflow_run_attempts: $run_attempts
     }
   ' >"${CHECK_CONTEXT_FILE}"
 }
@@ -255,7 +239,6 @@ main() {
   : "${GH_TOKEN:?Required env GH_TOKEN is not set}"
   : "${GITHUB_ISSUE_URL:?Required env GITHUB_ISSUE_URL is not set}"
   : "${CHECK_CONTEXT_FILE:?Required env CHECK_CONTEXT_FILE is not set}"
-  : "${MAX_FLAKE_RETRIES:?Required env MAX_FLAKE_RETRIES is not set}"
   export GH_TOKEN
 
   CHECK_CONTEXT_FILE="${CHECK_CONTEXT_FILE}"
@@ -267,13 +250,14 @@ main() {
 
   echo "::notice::Collecting failing checks for ${REPO_FULL_NAME}#${PR_NUMBER} @ ${HEAD_SHA}"
 
-  local raw_checks checks_json statuses_json logs_dir retries_map failing_count
+  local raw_checks checks_json statuses_json logs_dir run_attempts_json failing_count
   raw_checks="$(mktemp)"
   checks_json="$(mktemp)"
   statuses_json="$(mktemp)"
   logs_dir="$(mktemp -d)"
+  run_attempts_json="$(mktemp)"
 
-  # 2) Gather failure signals + logs, then record retry history from PR comments
+  # 2) Gather failure signals + logs
   collect_failing_check_runs "${raw_checks}" "${checks_json}"
   collect_failing_statuses "${statuses_json}"
 
@@ -282,23 +266,23 @@ main() {
 
   if [[ "${failing_count}" -eq 0 && "${statuses_count}" -eq 0 ]]; then
     echo "::notice::No failing checks or statuses for ${REPO_FULL_NAME}#${PR_NUMBER} @ ${HEAD_SHA} — nothing to diagnose"
-    rm -f "${raw_checks}" "${checks_json}" "${statuses_json}"
+    rm -f "${raw_checks}" "${checks_json}" "${statuses_json}" "${run_attempts_json}"
     rm -rf "${logs_dir}"
     exit 1
   fi
 
   fetch_workflow_logs "${checks_json}" "${logs_dir}"
-  retries_map="$(read_retries_map "${HEAD_SHA}")"
+  collect_run_attempts "${checks_json}" "${run_attempts_json}"
 
   # 3) Write the agent input context and clean up temps
-  write_check_context "${checks_json}" "${statuses_json}" "${retries_map}" "${logs_dir}"
+  write_check_context "${checks_json}" "${statuses_json}" "${logs_dir}" "${run_attempts_json}"
 
-  echo "::notice::Wrote ${CHECK_CONTEXT_FILE} (${failing_count} failing check runs; retries_map=${retries_map})"
+  echo "::notice::Wrote ${CHECK_CONTEXT_FILE} (${failing_count} failing check runs)"
   echo "::group::${CHECK_CONTEXT_FILE}"
   jq . "${CHECK_CONTEXT_FILE}"
   echo "::endgroup::"
 
-  rm -f "${raw_checks}" "${checks_json}" "${statuses_json}"
+  rm -f "${raw_checks}" "${checks_json}" "${statuses_json}" "${run_attempts_json}"
   rm -rf "${logs_dir}"
 }
 

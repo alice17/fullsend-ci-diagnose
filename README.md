@@ -19,9 +19,9 @@ flaky — within a per-check retry budget.
    result against `schemas/ci-diagnose-result.schema.json` before the
    post-script runs.
 4. **Post-script** (`scripts/post-ci-diagnose.sh`) runs on the trusted
-   runner, posts the sticky PR comment, and re-runs only the checks
-   individually classified `flaky` (confidence ≥ `MIN_RETRY_CONFIDENCE`,
-   budget not exhausted).
+   runner and posts the sticky PR comment. Re-runs of flaky checks are
+   handled entirely by the adopting repo's `ci-rerun` workflow, which
+   reads the artifact independently.
 
 All network reads happen in the pre-script; all network writes happen in
 the post-script. The sandbox is a pure analysis environment.
@@ -33,10 +33,9 @@ the post-script. The sandbox is a pure analysis environment.
 | `agents/ci-diagnose.md` | Agent prompt (the full behavior spec) |
 | `harness/ci-diagnose.yaml` | Harness config (model, providers, triggers, scripts, validation) |
 | `policies/ci-diagnose.yaml` | Sandbox filesystem/network policy |
-| `providers/vertex-ai.yaml` | Google Cloud Vertex AI inference provider |
 | `env/gcp-vertex.env` | Vertex AI env mounted into the sandbox via `host_files` in the harness |
 | `scripts/pre-ci-diagnose.sh` | Collects failing checks + logs before the agent runs |
-| `scripts/post-ci-diagnose.sh` | Posts the PR comment and re-runs flaky checks |
+| `scripts/post-ci-diagnose.sh` | Posts the PR comment |
 | `scripts/validate-output-schema.sh` | Validates agent output against the schema |
 | `schemas/ci-diagnose-result.schema.json` | JSON Schema for the agent's result |
 | `skills/classify-ci-failure/SKILL.md` | Classification rules used by the agent |
@@ -76,42 +75,30 @@ fullsend run ci-diagnose
 ```
 
 Manual runs require `GH_TOKEN`, `REPO_FULL_NAME`, and `GITHUB_ISSUE_URL` to
-be set; `MAX_FLAKE_RETRIES` and `MIN_RETRY_CONFIDENCE` are injected by the
-harness.
+be set.
 
 ## Environment variables
 
-Runner and sandbox variables (including retry tuning) are declared inline in
+Runner and sandbox variables are declared inline in
 `harness/ci-diagnose.yaml` under `env.runner` and `env.sandbox` — there is no
-separate `env/ci-diagnose.env` file. `MIN_RETRY_CONFIDENCE` is forwarded to
-`env.sandbox` so the agent can reference it during classification. Edit values
-in the harness:
+separate `env/ci-diagnose.env` file. Edit values in the harness:
 
 ```yaml
 env:
   runner:
     MAX_FLAKE_RETRIES: "2"
-    MIN_RETRY_CONFIDENCE: "0.7"
-  sandbox:
-    MIN_RETRY_CONFIDENCE: "0.7"
 ```
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MAX_FLAKE_RETRIES` | `2` | Maximum number of times the post-script will re-run a check that the agent classified as `flaky`. Once a check has been retried this many times for the current head commit, it is skipped even if the agent still considers it flaky. Set to `0` to disable automatic re-runs entirely. |
-| `MIN_RETRY_CONFIDENCE` | `0.7` | Minimum confidence score (0–1) the agent must assign to a `flaky` classification before the post-script will trigger a re-run. A higher value (e.g. `0.9`) makes re-runs more conservative; a lower value (e.g. `0.5`) re-runs more aggressively. |
+Retry tuning (`MIN_RETRY_CONFIDENCE`, `max-flake-retries`) is configured in the
+adopting repo's `ci-rerun` workflow, not in the harness.
 
-`MAX_FLAKE_RETRIES` is only in `env.runner` because the sandbox agent never
-re-runs checks — it only diagnoses and classifies failures. The re-run
-logic lives entirely in the post-script, which runs on the runner.
-`MIN_RETRY_CONFIDENCE` appears in both `env.runner` and `env.sandbox`: the
-post-script uses it to gate re-runs, and the agent references it during
-classification so it can reason about the threshold it is targeting.
+| Variable | Default | Scope | Description |
+|----------|---------|-------|-------------|
+| `MAX_FLAKE_RETRIES` | `2` | runner | Maximum number of times `ci-rerun` will re-run a check classified as `flaky`. Once exhausted the check is skipped. Set to `0` to disable automatic re-runs. |
+| `MIN_RETRY_CONFIDENCE` | `0.7` | – | Minimum per-check confidence (0–1) for a `flaky` classification to qualify for retry. Used by the adopting repo's `ci-rerun` workflow (passed as the `min-retry-confidence` input) to filter the agent's `failures[]`. Higher = more conservative. Not consumed by the post-script. |
 
-To override these values, change them in `harness/ci-diagnose.yaml` and
-commit. If you change `MIN_RETRY_CONFIDENCE`, keep the value in sync
-between `env.runner` and `env.sandbox` so the agent and the post-script
-agree on the threshold.
+The sandbox agent only diagnoses and classifies — retry decisions are made
+deterministically by the adopting repo's `ci-rerun` workflow.
 
 ## Notes
 
