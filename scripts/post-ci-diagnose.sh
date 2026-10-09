@@ -2,8 +2,9 @@
 # post-ci-diagnose.sh — Post diagnosis comment on a PR.
 #
 # Runs on the trusted runner after sandbox exit. The only effect is
-# posting a sticky PR comment — re-runs of flaky checks are delegated to a
-# user-owned ci-rerun workflow that reads the fullsend-ci-diagnose artifact
+# posting a sticky PR comment. Re-runs of flaky checks are handled
+# entirely by the adopting repo's ci-rerun workflow, which reads the
+# fullsend-ci-diagnose artifact independently
 # (see ADR 0124, chaining-follow-up-workflows guide).
 #
 # Required env:
@@ -13,7 +14,6 @@
 #                          `gh pr comment` and `gh pr view` accept the URL.
 #                          A numeric id is extracted for REST and
 #                          `fullsend issues post-comment --tracker github --number`.
-#   MIN_RETRY_CONFIDENCE — minimum confidence to retry (set by harness yaml)
 #   FULLSEND_OUTPUT_FILE — result filename (set by harness yaml)
 set -euo pipefail
 
@@ -45,20 +45,6 @@ find_result_file() {
   exit 1
 }
 
-# True when the agent recommends a flake retry and confidence qualifies.
-should_retry() {
-  local result_file="$1"
-  local min_confidence="${MIN_RETRY_CONFIDENCE}"
-
-  jq -e \
-    --argjson min_confidence "${min_confidence}" '
-      .recommended_action == "retry"
-      and .classification == "flaky"
-      and (.confidence >= $min_confidence)
-      and ((.retry_targets | length) > 0)
-    ' "${result_file}" >/dev/null 2>&1
-}
-
 # Post a sticky diagnosis comment via fullsend issues post-comment.
 post_sticky_comment() {
   local body_file="$1"
@@ -78,12 +64,11 @@ main() {
   : "${REPO_FULL_NAME:?Required env REPO_FULL_NAME is not set}"
   : "${GH_TOKEN:?Required env GH_TOKEN is not set}"
   : "${GITHUB_ISSUE_URL:?Required env GITHUB_ISSUE_URL is not set}"
-  : "${MIN_RETRY_CONFIDENCE:?Required env MIN_RETRY_CONFIDENCE is not set}"
   : "${FULLSEND_OUTPUT_FILE:?Required env FULLSEND_OUTPUT_FILE is not set}"
   export GH_TOKEN
 
   # 1) Load and validate agent output
-  local result_file retry_note body_file
+  local result_file body_file
   result_file="$(find_result_file)"
   echo "::notice::Reading diagnosis result from ${result_file}"
 
@@ -92,23 +77,7 @@ main() {
     exit 1
   fi
 
-  # 2) Determine retry recommendation for comment text.
-  retry_note=""
-
-  if should_retry "${result_file}"; then
-    local target_count
-    target_count="$(jq '.retry_targets | length' "${result_file}")"
-    retry_note="**Retry:** recommended for ${target_count} flaky check(s). The \`ci-rerun\` workflow will handle re-runs from the run artifact."
-  else
-    local action classification
-    action="$(jq -r '.recommended_action' "${result_file}")"
-    classification="$(jq -r '.classification' "${result_file}")"
-    if [[ "${action}" == "retry" ]]; then
-      retry_note="**Retry:** skipped (classification=${classification}, min_confidence=${MIN_RETRY_CONFIDENCE})."
-    fi
-  fi
-
-  # 3) Build and post sticky diagnosis comment
+  # 2) Build and post sticky diagnosis comment
   local body
   body="$(jq -r '.pr_comment_markdown' "${result_file}")"
   if [[ -z "${body}" || "${body}" == "null" ]]; then
@@ -117,10 +86,7 @@ main() {
   fi
 
   body_file="$(mktemp)"
-  {
-    printf '%s\n' "${body}"
-    [[ -n "${retry_note}" ]] && printf '\n---\n%s\n' "${retry_note}"
-  } >"${body_file}"
+  printf '%s\n' "${body}" >"${body_file}"
   echo "::notice::Posting diagnosis comment on ${GITHUB_ISSUE_URL}"
   post_sticky_comment "${body_file}"
   rm -f "${body_file}"

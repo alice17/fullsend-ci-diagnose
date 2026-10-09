@@ -8,7 +8,7 @@
 #   1. check_run_id is a number (non-numeric IDs are dropped by jq)
 #   2. The job exists and has conclusion=failure
 #   3. The job's head_sha matches the artifact's own head_sha
-#   4. The run's current attempt is at most max-attempts
+#   4. The run's current attempt is at most max-flake-retries
 #
 # See ADR 0124, chaining-follow-up-workflows guide.
 ---
@@ -21,11 +21,16 @@ on:
         description: "The workflow_run.id from the fullsend shim run"
         required: true
         type: string
-      max-attempts:
+      max-flake-retries:
         description: "Re-run only when current attempt <= this value (default 2 = up to 2 re-runs)"
         required: false
         type: string
         default: "2"
+      min-retry-confidence:
+        description: "Minimum confidence for a flaky classification to qualify for retry (default 0.7)"
+        required: false
+        type: string
+        default: "0.7"
 
 permissions: {}
 
@@ -75,7 +80,8 @@ jobs:
         if: steps.find.outputs.artifact != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          MAX_ATTEMPTS: ${{ inputs.max-attempts }}
+          MAX_FLAKE_RETRIES: ${{ inputs.max-flake-retries }}
+          MIN_CONFIDENCE: ${{ inputs.min-retry-confidence }}
         run: |
           set -euo pipefail
 
@@ -85,10 +91,9 @@ jobs:
           for d in $(printf '%s\n' result/*/iteration-*/output | sort -Vr); do
             candidate="$d/ci-diagnose-result.json"
             [[ -f "$candidate" ]] || continue
-            if jq -e '
-              .recommended_action != null
-              and (.retry_targets | type == "array")
-              and (.retry_targets | all(.[]; .check_name != null))
+            if jq -e --arg min "$MIN_CONFIDENCE" '
+              (.failures | type == "array")
+              and ([.failures[] | select(.classification == "flaky" and .confidence >= ($min | tonumber))] | length > 0)
             ' "$candidate" >/dev/null 2>&1; then
               f="$candidate"
               break
@@ -106,15 +111,12 @@ jobs:
             exit 0
           fi
 
-          action=$(jq -r .recommended_action "$f")
-          if [[ "$action" != "retry" ]]; then
-            echo "::notice::recommended_action is $action, not retry; nothing to do"
-            exit 0
-          fi
-
           rerun_count=0
           skip_count=0
-          for id in $(jq -r '.retry_targets[].check_run_id | numbers' "$f"); do
+          for id in $(jq -r --arg min "$MIN_CONFIDENCE" '
+            [.failures[] | select(.classification == "flaky" and .confidence >= ($min | tonumber))]
+            | .[].check_run_id | numbers
+          ' "$f"); do
             job=$(gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$id" 2>/dev/null) || {
               echo "::warning::Job $id not found; skipping"
               skip_count=$((skip_count + 1))
@@ -143,8 +145,8 @@ jobs:
               skip_count=$((skip_count + 1))
               continue
             }
-            if [[ "$attempt" -gt "$MAX_ATTEMPTS" ]]; then
-              echo "::notice::Run $run_id attempt $attempt > $MAX_ATTEMPTS; budget exhausted"
+            if [[ "$attempt" -gt "$MAX_FLAKE_RETRIES" ]]; then
+              echo "::notice::Run $run_id attempt $attempt > $MAX_FLAKE_RETRIES; budget exhausted"
               skip_count=$((skip_count + 1))
               continue
             fi

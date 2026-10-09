@@ -56,7 +56,7 @@ except ValidationError as e:
 fi
 
 # Soft fallback: structural presence of required top-level keys.
-required=(status classification confidence recommended_action failures retry_targets pr_comment_markdown reasoning)
+required=(status failures pr_comment_markdown reasoning head_sha)
 for key in "${required[@]}"; do
   if [[ "$(jq -r --arg k "${key}" 'has($k)' "${RESULT_FILE}")" != "true" ]]; then
     echo "::error::Result missing required key: ${key}"

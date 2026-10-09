@@ -8,11 +8,7 @@
   "additionalProperties": false,
   "required": [
     "status",
-    "classification",
-    "confidence",
-    "recommended_action",
     "failures",
-    "retry_targets",
     "pr_comment_markdown",
     "reasoning",
     "head_sha"
@@ -28,34 +24,11 @@
       "enum": ["diagnosed", "needs_human", "error"],
       "description": "Overall agent outcome."
     },
-    "classification": {
-      "type": "string",
-      "enum": ["flaky", "infra", "code", "unknown"],
-      "description": "Primary failure class across observed failing checks."
-    },
-    "confidence": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "description": "Confidence in classification and recommended_action (0.0–1.0)."
-    },
-    "recommended_action": {
-      "type": "string",
-      "enum": ["retry", "comment_only", "escalate"],
-      "description": "What the post-script should do. retry only when classification is flaky."
-    },
     "failures": {
       "type": "array",
       "description": "Per-check diagnosis details.",
       "items": {
         "$ref": "#/$defs/failure"
-      }
-    },
-    "retry_targets": {
-      "type": "array",
-      "description": "Check runs to re-run when recommended_action is retry.",
-      "items": {
-        "$ref": "#/$defs/retry_target"
       }
     },
     "pr_comment_markdown": {
@@ -82,18 +55,6 @@
       },
       "then": {
         "required": ["error_message"]
-      }
-    },
-    {
-      "if": {
-        "properties": { "recommended_action": { "const": "retry" } },
-        "required": ["recommended_action"]
-      },
-      "then": {
-        "properties": {
-          "classification": { "const": "flaky" },
-          "retry_targets": { "minItems": 1 }
-        }
       }
     }
   ],
@@ -160,20 +121,6 @@
             "minLength": 1
           },
           "description": "Short log/event excerpts supporting the root cause."
-        }
-      }
-    },
-    "retry_target": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["check_name"],
-      "properties": {
-        "check_name": {
-          "type": "string",
-          "minLength": 1
-        },
-        "check_run_id": {
-          "type": ["integer", "null"]
         }
       }
     }

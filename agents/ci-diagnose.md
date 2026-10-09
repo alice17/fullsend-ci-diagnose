@@ -35,9 +35,6 @@ Environment / host files set by the pre-script:
   (default: `/sandbox/workspace/target-repo/check-context.json`)
 - `FULLSEND_OUTPUT_DIR` — directory for the result file (default:
   `/sandbox/workspace/output`; must write here or Fullsend cannot extract it)
-- `MIN_RETRY_CONFIDENCE` — minimum confidence to recommend `retry` (set by
-  the harness; same value the post-script uses). Read it from the
-  environment; do not assume a numeric default.
 
 Read PR identity from `check-context.json`. Do not expect PR metadata as
 sandbox environment variables.
@@ -105,29 +102,13 @@ For each failure, produce:
 
 - `root_cause` — specific cause, not a vague "build failed"
 - `evidence` — short excerpts or observed signals
-- contribution to overall `classification` and `confidence`
+- `classification` — one of `flaky`, `infra`, `code`, `unknown`
+- `confidence` — 0.0–1.0 in the classification
 
 Apply the classification rules and confidence guidance from the
 `classify-ci-failure` skill.
 
-### Phase 5: Choose recommended action
-
-- `retry` — only if overall `classification` is `flaky`,
-  `confidence >= MIN_RETRY_CONFIDENCE`, and at least one `retry_targets`
-  entry exists. If `MIN_RETRY_CONFIDENCE` is unset, do not recommend
-  `retry`. Retry-attempt budget enforcement happens downstream in the
-  `ci-rerun` workflow (via `max-attempts`/`run_attempt`) — do not gate on
-  a budget here.
-- `comment_only` — diagnosis is useful but retry is inappropriate
-- `escalate` — needs human investigation (`needs_human` status or low confidence)
-
-Never recommend `retry` for `code` classification.
-
-Only include failures you individually classified as `flaky` in
-`retry_targets`. Do not add `code`, `infra`, or `unknown` failures to
-the retry list even when the overall classification is `flaky`.
-
-### Phase 6: Write result JSON
+### Phase 5: Write result JSON
 
 `$FULLSEND_OUTPUT_DIR` is required (set by the harness). Write valid JSON only
 (no markdown fences). It must match `schemas/ci-diagnose-result.schema.json`.
@@ -162,9 +143,6 @@ Required shape:
 {
   "status": "diagnosed",
   "head_sha": "abc123...",
-  "classification": "flaky",
-  "confidence": 0.82,
-  "recommended_action": "retry",
   "failures": [
     {
       "check_name": "test",
@@ -178,10 +156,20 @@ Required shape:
       "confidence": 0.82,
       "root_cause": "Jest timed out waiting for a network mock",
       "evidence": ["Timeout - Async callback was not invoked", "ERR_CONNECTION_RESET"]
+    },
+    {
+      "check_name": "build",
+      "check_run_id": 123456790,
+      "conclusion": "failure",
+      "details_url": "https://github.com/owner/repo/actions/runs/987654321/job/222",
+      "workflow_run_url": "https://github.com/owner/repo/actions/runs/987654321",
+      "workflow_run_id": 987654321,
+      "job_name": "build",
+      "classification": "infra",
+      "confidence": 0.93,
+      "root_cause": "Container registry returned 503",
+      "evidence": ["HTTP 503 Service Unavailable from ghcr.io"]
     }
-  ],
-  "retry_targets": [
-    { "check_name": "test", "check_run_id": 123456789 }
   ],
   "pr_comment_markdown": "## CI diagnosis\n\n...",
   "reasoning": "..."
@@ -201,12 +189,12 @@ Required shape:
 Link the check name to its `details_url` (or constructed workflow
 run + job URL). If no URL is available, use plain text.
 
-**2. Action** — what happened or will happen:
+**2. Recommendation** — summarise what should happen next:
 
-- If a retry was performed: which check(s) were re-requested and the
-  attempt count (e.g. "attempt 1/1")
-- If no retry: why (budget exhausted, classification is not flaky,
-  confidence too low, etc.)
+- For `flaky` failures: note that the repo's `ci-rerun` workflow will
+  evaluate retry eligibility from the artifact based on confidence and budget
+- For `code` failures: suggest what the PR author should fix
+- For `infra` / `unknown`: note that human review is recommended
 
 **3. Details** — additional context, e.g. relevant log excerpts,
 related failures, or suggestions for the PR author. Keep brief.
@@ -217,6 +205,5 @@ related failures, or suggestions for the PR author. Keep brief.
 - Do not invent workflow run URLs, log lines, or `check-context.json` contents
   you did not observe from a real tool result
 - If no GitHub Actions checks failed (only unrelated third-party checks), use
-  `status: needs_human`, `classification: unknown`,
-  `recommended_action: comment_only`
+  `status: needs_human` with empty `failures`
 - Prefer honest `unknown` over speculative `flaky`
