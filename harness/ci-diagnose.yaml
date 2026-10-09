@@ -16,10 +16,6 @@ model: claude-opus-4-6
 image: ghcr.io/fullsend-ai/fullsend-sandbox:latest
 policy: policies/ci-diagnose.yaml
 
-openshell:
-  profiles:
-    - profiles/fullsend-vertex-ai.yaml
-
 providers:
   - vertex-ai
 

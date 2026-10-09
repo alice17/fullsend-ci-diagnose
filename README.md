@@ -33,7 +33,6 @@ the post-script. The sandbox is a pure analysis environment.
 | `agents/ci-diagnose.md` | Agent prompt (the full behavior spec) |
 | `harness/ci-diagnose.yaml` | Harness config (model, providers, triggers, scripts, validation) |
 | `policies/ci-diagnose.yaml` | Sandbox filesystem/network policy |
-| `providers/vertex-ai.yaml` | Google Cloud Vertex AI inference provider |
 | `env/gcp-vertex.env` | Vertex AI env mounted into the sandbox via `host_files` in the harness |
 | `scripts/pre-ci-diagnose.sh` | Collects failing checks + logs before the agent runs |
 | `scripts/post-ci-diagnose.sh` | Posts the PR comment |
