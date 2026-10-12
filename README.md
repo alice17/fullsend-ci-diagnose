@@ -9,8 +9,8 @@ flaky — within a per-check retry budget.
 ## How it works
 
 1. **Pre-script** (`scripts/pre-ci-diagnose.sh`) runs on the trusted runner
-   and collects failing checks, workflow log excerpts, and retry-budget
-   counters for the PR's head commit into `check-context.json`.
+   and collects failing checks and workflow log excerpts for the PR's head
+   commit into `check-context.json`.
 2. **Agent** (`agents/ci-diagnose.md`) runs sandboxed with no GitHub token
    and no network access (only Vertex AI for inference). It reads the
    context file, diagnoses each failure using the `classify-ci-failure`
@@ -66,6 +66,51 @@ agents:
   - name: ci-diagnose
     source: harness/ci-diagnose.yaml
 ```
+
+### Enable automatic re-runs (`ci-rerun` workflow)
+
+`fullsend agent add` only installs the sandboxed diagnosis harness. Automatic
+re-runs of checks classified as `flaky` are handled by a separate reusable
+GitHub Actions workflow (`.github/workflows/ci-rerun.yaml` in this repo) that
+the target repo must call explicitly — it is **not** installed by
+`fullsend agent add`. Without this, `ci-diagnose` still diagnoses and
+comments, but no check is ever automatically re-run.
+
+Add a thin caller workflow to the target repo, e.g.
+`.github/workflows/ci-rerun.yaml`:
+
+```yaml
+name: ci-rerun
+
+on:
+  workflow_run:
+    workflows: ["fullsend"]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  rerun:
+    if: github.event.workflow_run.conclusion == 'success'
+    permissions:
+      actions: write
+    uses: alice17/fullsend-ci-diagnose/.github/workflows/ci-rerun.yaml@main
+    with:
+      run-id: ${{ github.event.workflow_run.id }}
+      # Optional, defaults shown:
+      # max-flake-retries: "2"
+      # min-retry-confidence: "0.7"
+```
+
+- `workflows: ["fullsend"]` must match the `name:` of the fullsend dispatch
+  shim workflow installed by `fullsend github setup` /
+  `fullsend github sync-scaffold` (typically `.github/workflows/fullsend.yaml`
+  with `name: fullsend`). The caller owns this `workflow_run` trigger because
+  `github.event.workflow_run` isn't available inside a `workflow_call` callee.
+- Pin `@main` to a tag or commit SHA for production use, consistent with how
+  `fullsend agent add` pins the harness.
+- `actions: write` permission is required so the reusable workflow can call
+  `gh run rerun`.
 
 Trigger it by commenting `/fs-ci-diagnose` on a non-fork pull request, or
 run it manually:
