@@ -9,7 +9,7 @@ description: >-
 
 ## Overview
 
-Decide the primary failure class and whether the post-script should retry.
+Decide the primary failure class and whether a retry is appropriate.
 
 ## Classes
 
@@ -63,6 +63,7 @@ Decide the primary failure class and whether the post-script should retry.
 - Medium (0.5–0.79): plausible class, limited evidence
 - Low (< 0.5): use `unknown` or `needs_human` rather than guessing `flaky`
 
-Never recommend `retry` unless classification is `flaky` and confidence
-≥ `MIN_RETRY_CONFIDENCE` (sandbox environment; set by the harness). Do
-not assume a numeric default.
+Retry eligibility is derived by the adopting repo's `ci-rerun` workflow,
+not by the agent. The agent only classifies — the `ci-rerun` workflow filters
+for `flaky` failures with confidence ≥ `MIN_RETRY_CONFIDENCE`. Non-flaky
+failures do not block retry of flaky ones.
