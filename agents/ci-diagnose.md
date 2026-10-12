@@ -31,7 +31,7 @@ Environment / host files set by the pre-script:
   `pr_number`, `head_sha`, `pr_url`, `pr_title`, `head_ref`, `base_ref`),
   failing checks (metadata only: `check_name`, `check_run_id`, `conclusion`,
   `status`, `details_url`, `html_url`, `app_slug`; no `output_*` blobs),
-  pre-fetched workflow logs, and `workflow_run_attempts`
+  and pre-fetched workflow logs
   (default: `/sandbox/workspace/target-repo/check-context.json`)
 - `FULLSEND_OUTPUT_DIR` — directory for the result file (default:
   `/sandbox/workspace/output`; must write here or Fullsend cannot extract it)

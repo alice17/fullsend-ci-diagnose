@@ -150,57 +150,19 @@ fetch_workflow_logs() {
   echo "::notice::Fetched logs for ${count} workflow run(s)"
 }
 
-# Fetch run_attempt for each unique workflow run ID found in failing checks.
-# Writes a JSON object { "<run_id>": <run_attempt> } to the output path.
-# Soft-fails per run so one API miss does not block the rest.
-collect_run_attempts() {
-  local checks_path="$1"
-  local out_path="$2"
-
-  local run_ids
-  run_ids="$(jq -r '
-    [.[]
-      | select(.details_url != null or .html_url != null)
-      | (.details_url // .html_url)
-      | capture("actions/runs/(?<run_id>[0-9]+)")?
-      | .run_id
-    ] | unique[]
-  ' "${checks_path}")" || true
-
-  local result='{}'
-  if [[ -n "${run_ids}" ]]; then
-    while IFS= read -r run_id; do
-      [[ -z "${run_id}" ]] && continue
-      local attempt
-      if attempt="$(gh api "repos/${REPO_FULL_NAME}/actions/runs/${run_id}" \
-        --jq '.run_attempt' 2>/dev/null)"; then
-        result="$(jq --arg k "${run_id}" --argjson v "${attempt}" \
-          '. + {($k): $v}' <<< "${result}")"
-      else
-        echo "::warning::Failed to fetch run_attempt for run ${run_id}" >&2
-      fi
-    done <<< "${run_ids}"
-  fi
-
-  printf '%s' "${result}" >"${out_path}"
-}
-
 # Assemble the final check-context.json: PR metadata, failing checks/statuses,
-# workflow log excerpts, and workflow run attempts.
+# and workflow log excerpts.
 write_check_context() {
   local checks_path="$1"
   local statuses_path="$2"
   local logs_dir="$3"
-  local run_attempts_path="$4"
-  local logs_json run_attempts
+  local logs_json
 
   logs_json='{}'
   for f in "${logs_dir}"/*.txt; do
     [[ -f "$f" ]] || continue
     logs_json="$(jq --arg k "$(basename "$f" .txt)" --rawfile v "$f" '. + {($k): $v}' <<< "${logs_json}")"
   done
-
-  run_attempts="$(cat "${run_attempts_path}")"
 
   jq -n \
     --arg repo "${REPO_FULL_NAME}" \
@@ -213,8 +175,7 @@ write_check_context() {
     --arg collected_at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
     --slurpfile checks "${checks_path}" \
     --slurpfile statuses "${statuses_path}" \
-    --argjson logs "${logs_json}" \
-    --argjson run_attempts "${run_attempts}" '
+    --argjson logs "${logs_json}" '
     {
       repo_full_name: $repo,
       pr_number: $pr_number,
@@ -226,8 +187,7 @@ write_check_context() {
       collected_at: $collected_at,
       failing_checks: $checks[0],
       failing_statuses: $statuses[0],
-      workflow_logs: $logs,
-      workflow_run_attempts: $run_attempts
+      workflow_logs: $logs
     }
   ' >"${CHECK_CONTEXT_FILE}"
 }
@@ -250,12 +210,11 @@ main() {
 
   echo "::notice::Collecting failing checks for ${REPO_FULL_NAME}#${PR_NUMBER} @ ${HEAD_SHA}"
 
-  local raw_checks checks_json statuses_json logs_dir run_attempts_json failing_count
+  local raw_checks checks_json statuses_json logs_dir failing_count
   raw_checks="$(mktemp)"
   checks_json="$(mktemp)"
   statuses_json="$(mktemp)"
   logs_dir="$(mktemp -d)"
-  run_attempts_json="$(mktemp)"
 
   # 2) Gather failure signals + logs
   collect_failing_check_runs "${raw_checks}" "${checks_json}"
@@ -266,23 +225,22 @@ main() {
 
   if [[ "${failing_count}" -eq 0 && "${statuses_count}" -eq 0 ]]; then
     echo "::notice::No failing checks or statuses for ${REPO_FULL_NAME}#${PR_NUMBER} @ ${HEAD_SHA} — nothing to diagnose"
-    rm -f "${raw_checks}" "${checks_json}" "${statuses_json}" "${run_attempts_json}"
+    rm -f "${raw_checks}" "${checks_json}" "${statuses_json}"
     rm -rf "${logs_dir}"
     exit 1
   fi
 
   fetch_workflow_logs "${checks_json}" "${logs_dir}"
-  collect_run_attempts "${checks_json}" "${run_attempts_json}"
 
   # 3) Write the agent input context and clean up temps
-  write_check_context "${checks_json}" "${statuses_json}" "${logs_dir}" "${run_attempts_json}"
+  write_check_context "${checks_json}" "${statuses_json}" "${logs_dir}"
 
   echo "::notice::Wrote ${CHECK_CONTEXT_FILE} (${failing_count} failing check runs)"
   echo "::group::${CHECK_CONTEXT_FILE}"
   jq . "${CHECK_CONTEXT_FILE}"
   echo "::endgroup::"
 
-  rm -f "${raw_checks}" "${checks_json}" "${statuses_json}" "${run_attempts_json}"
+  rm -f "${raw_checks}" "${checks_json}" "${statuses_json}"
   rm -rf "${logs_dir}"
 }
 
