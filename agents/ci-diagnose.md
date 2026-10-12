@@ -189,15 +189,31 @@ Required shape:
 Link the check name to its `details_url` (or constructed workflow
 run + job URL). If no URL is available, use plain text.
 
-**2. Recommendation** — summarise what should happen next:
+**2. Details** — one entry per failed check, combining its root-cause
+context with its recommendation so each check is discussed once instead of
+being split across separate lists:
+
+```markdown
+**test** — Jest timed out waiting for a network mock in
+`src/widget.test.js:42`; the job uses a random outcome gate (`RANDOM % 2`),
+confirming non-deterministic behavior. The repo's `ci-rerun` workflow will
+evaluate retry eligibility based on confidence and budget.
+
+**build** — Hit four independent infrastructure failures: `ghcr.io` returned
+HTTP 503, the npm registry refused connections (`ECONNREFUSED`), GitHub
+Actions was rate-limited, and the runner ran out of disk space
+(`/var/lib/docker`). These are external service issues unrelated to the PR
+code — human review recommended.
+```
+
+Within each check's entry, fold in the recommendation naturally:
 
 - For `flaky` failures: note that the repo's `ci-rerun` workflow will
   evaluate retry eligibility from the artifact based on confidence and budget
 - For `code` failures: suggest what the PR author should fix
 - For `infra` / `unknown`: note that human review is recommended
 
-**3. Details** — additional context, e.g. relevant log excerpts,
-related failures, or suggestions for the PR author. Keep brief.
+Keep each entry brief — log excerpts or context, then the recommendation.
 
 ## Constraints
 
